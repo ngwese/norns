@@ -3,6 +3,8 @@ top = '..'
 def build(bld):
     cflags=['-O3', '-Wall']
 
+    bld.env.append_unique('RPATH', [bld.path.get_bld()])
+
     matron_lib_sources = [
         'src/device/device.c',
         'src/device/device_hid.c',
