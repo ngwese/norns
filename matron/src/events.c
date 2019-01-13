@@ -11,11 +11,8 @@
 #include "events.h"
 #include "device_monome.h"
 #include "gpio.h"
-//#include "oracle.h"
-#include "osc.h"
 #include "battery.h"
 #include "stat.h"
-//#include "weaver.h"
 
 #include "event_types.h"
 
@@ -44,11 +41,6 @@ static event_handler_t *event_handler = null_handle_event;
 
 //----------------------------
 //--- static function declarations
-
-/// helpers
-//static void handle_engine_report(void);
-//static void handle_command_report(void);
-//static void handle_poll_report(void);
 
 // add an event data struct to the end of the event queue
 // *does* allocate queue node memory!
@@ -99,46 +91,24 @@ void events_init(void) {
 }
 
 void event_set_handler(event_handler_t *h) {
-  pthread_mutex_lock(&evq.lock);
-  event_handler = h;
-  pthread_mutex_unlock(&evq.lock);
+    pthread_mutex_lock(&evq.lock);
+    event_handler = h;
+    pthread_mutex_unlock(&evq.lock);
 }
 
 union event_data *event_data_new(event_t type, free_event_data_t cb) {
     // FIXME: better not to allocate here, use object pool
     union event_data *ev = calloc(1, sizeof(union event_data));
     ev->type = type;
-    ev->free = cb;
+    ev->common.free = cb;
     return ev;
 }
 
 void event_data_free(union event_data *ev) {
-  if (ev->free) {
-    (*ev).free(ev);
+  if (ev->common.free) {
+    ev->common.free(ev);
   }
 }
-
-/*
-void event_data_free(union event_data *ev) {
-    switch (ev->type) {
-    case EVENT_EXEC_CODE_LINE:
-        free(ev->exec_code_line.line);
-        break;
-    case EVENT_OSC:
-        free(ev->osc_event.path);
-        free(ev->osc_event.from_host);
-        free(ev->osc_event.from_port);
-        //osc_message_free(ev->osc_event.msg);
-        break;
-    case EVENT_POLL_DATA:
-        free(ev->poll_data.data);
-        break;
-    case EVENT_POLL_WAVE:
-        free(ev->poll_wave.data);
-        break;
-    }
-}
-*/
 
 // add an event to the q and signal if necessary
 void event_post(union event_data *ev) {
@@ -172,7 +142,7 @@ void event_loop(void) {
         ev = evq_pop();
         pthread_mutex_unlock(&evq.lock);
         if(ev != NULL) {
-	  (*event_handler)(ev);
+		    (*event_handler)(ev);
         }
     }
 }

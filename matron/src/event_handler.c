@@ -27,26 +27,6 @@
 /// helpers
 static void handle_engine_report(void);
 
-void event_data_free(union event_data *ev) {
-    switch (ev->type) {
-    case EVENT_EXEC_CODE_LINE:
-        free(ev->exec_code_line.line);
-        break;
-    case EVENT_OSC:
-        free(ev->osc_event.path);
-        free(ev->osc_event.from_host);
-        free(ev->osc_event.from_port);
-        lo_message_free(ev->osc_event.msg);
-        break;
-    case EVENT_POLL_DATA:
-        free(ev->poll_data.data);
-        break;
-    case EVENT_POLL_WAVE:
-        free(ev->poll_wave.data);
-        break;
-    }
-}
-
 
 //------------------------------
 //-- static function definitions

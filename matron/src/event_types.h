@@ -86,7 +86,7 @@ typedef union {
 
 struct event_common {
     uint32_t type;
-  free_event_data_t free;
+    free_event_data_t free;
     // could put timestamp here if we want
 }; // +4
 
@@ -243,7 +243,7 @@ struct event_startup_ready_timeout {
 
 union event_data {
     uint32_t type;
-  free_event_data_t free;
+    struct event_common common;
     struct event_exec_code_line exec_code_line;
     struct event_monome_add monome_add;
     struct event_monome_remove monome_remove;
