@@ -12,6 +12,12 @@
 
 static pthread_t pid;
 
+void free_exec_code_line(union event_data *ev) {
+  if (ev->type == EVENT_EXEC_CODE_LINE) {
+    free(ev->exec_code_line.line);
+  }
+}
+
 #define RX_BUF_LEN 4096
 static void *input_run(void *p) {
     (void)p;
@@ -38,7 +44,7 @@ static void *input_run(void *p) {
         }
         if (nb == 2) {
             if(rxbuf[0] == 'q') {
-                event_post( event_data_new(EVENT_QUIT) );
+	      event_post( event_data_new(EVENT_QUIT, NULL) );
                 quit = true;
                 continue;
             }
@@ -48,7 +54,7 @@ static void *input_run(void *p) {
             char *line = malloc( (nb + 1) * sizeof(char) );
             strncpy(line, rxbuf, nb);
             line[nb] = '\0';
-            union event_data *ev = event_data_new(EVENT_EXEC_CODE_LINE);
+            union event_data *ev = event_data_new(EVENT_EXEC_CODE_LINE, free_exec_code_line);
             ev->exec_code_line.line = line;
             event_post(ev);
         }

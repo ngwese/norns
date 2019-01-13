@@ -73,7 +73,7 @@ void *battery_check(void *x) {
 
         if (n != present) {
             present = n;
-            union event_data *ev = event_data_new(EVENT_POWER);
+            union event_data *ev = event_data_new(EVENT_POWER, NULL);
             ev->power.present = present;
             event_post(ev);
         }
@@ -88,7 +88,7 @@ void *battery_check(void *x) {
 
         if (n != current) {
             current = n;
-            union event_data *ev = event_data_new(EVENT_BATTERY);
+            union event_data *ev = event_data_new(EVENT_BATTERY, NULL);
             ev->battery.percent = percent;
             ev->battery.current = current;
             event_post(ev);

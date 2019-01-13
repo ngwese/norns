@@ -1,8 +1,8 @@
 #pragma once
 
 #include <stdint.h>
-#include "oracle.h"
-#include "osc.h"
+#include "oracle_types.h"
+#include "osc_types.h"
 
 typedef enum {
     // unused (do not remove)
@@ -67,6 +67,13 @@ typedef enum {
     EVENT_QUIT,
 } event_t;
 
+
+// free event data callback for structures holding dynamically
+// allocated values
+union event_data;
+typedef void (*free_event_data_t)(union event_data *ev);
+
+
 // a packed data structure for four volume levels
 // each channel is represented by unsigned byte with audio taper:
 // 255 == 0db
@@ -79,6 +86,7 @@ typedef union {
 
 struct event_common {
     uint32_t type;
+  free_event_data_t free;
     // could put timestamp here if we want
 }; // +4
 
@@ -160,7 +168,7 @@ struct event_osc {
     char *path;
     char *from_host;
     char *from_port;
-    lo_message msg;
+    osc_message msg;
 }; // +16?
 
 struct event_metro {
@@ -235,6 +243,7 @@ struct event_startup_ready_timeout {
 
 union event_data {
     uint32_t type;
+  free_event_data_t free;
     struct event_exec_code_line exec_code_line;
     struct event_monome_add monome_add;
     struct event_monome_remove monome_remove;

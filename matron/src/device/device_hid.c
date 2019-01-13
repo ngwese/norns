@@ -112,7 +112,7 @@ int dev_hid_init(void *self, bool print) {
 }
 
 static void handle_event(struct dev_hid *dev, struct input_event *inev) {
-    union event_data *ev = event_data_new(EVENT_HID_EVENT);
+  union event_data *ev = event_data_new(EVENT_HID_EVENT, NULL);
     ev->hid_event.id = dev->base.id;
     ev->hid_event.type = inev->type;
     ev->hid_event.code = inev->code;

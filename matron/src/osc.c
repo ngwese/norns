@@ -57,7 +57,7 @@ void osc_deinit(void) {
     lo_address_free(crone_addr);
 }
 
-void osc_send(const char *host, const char *port, const char *path, lo_message msg) {
+void osc_send(const char *host, const char *port, const char *path, osc_message msg) {
     lo_address address = lo_address_new(host, port);
     if (!address) {
         fprintf(stderr, "failed to create lo_address\n");
@@ -67,8 +67,17 @@ void osc_send(const char *host, const char *port, const char *path, lo_message m
     lo_address_free(address);
 }
 
-void osc_send_crone(const char *path, lo_message msg) {
+void osc_send_crone(const char *path, osc_message msg) {
   lo_send_message(crone_addr, path, msg);
+}
+
+static void free_event_osc(union event_data *ev) {
+  if (ev->type == EVENT_OSC) {
+    free(ev->osc_event.path);
+    free(ev->osc_event.from_host);
+    free(ev->osc_event.from_port);
+    lo_message_free(ev->osc_event.msg);
+  }
 }
 
 int osc_receive(const char *path,
@@ -83,7 +92,7 @@ int osc_receive(const char *path,
     (void)argc;
     (void)user_data;
 
-    union event_data *ev = event_data_new(EVENT_OSC);
+    union event_data *ev = event_data_new(EVENT_OSC, free_event_osc);
 
     ev->osc_event.path = strdup(path);
     ev->osc_event.msg = lo_message_clone(msg);

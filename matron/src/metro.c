@@ -222,7 +222,7 @@ void metro_set_current_time(struct metro *t) {
 }
 
 void metro_bang(struct metro *t) {
-    union event_data *ev = event_data_new(EVENT_METRO);
+  union event_data *ev = event_data_new(EVENT_METRO, NULL);
     ev->metro.id = t->idx;
     ev->metro.stage = t->stage;
     event_post(ev);

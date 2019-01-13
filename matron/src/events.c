@@ -11,10 +11,11 @@
 #include "events.h"
 #include "device_monome.h"
 #include "gpio.h"
-#include "oracle.h"
+//#include "oracle.h"
+#include "osc.h"
 #include "battery.h"
 #include "stat.h"
-#include "weaver.h"
+//#include "weaver.h"
 
 #include "event_types.h"
 
@@ -38,14 +39,14 @@ struct ev_q {
 struct ev_q evq;
 bool quit;
 
+static void null_handle_event(union event_data *ev);
+static event_handler_t *event_handler = null_handle_event;
+
 //----------------------------
 //--- static function declarations
 
-//---- handlers
-static void handle_event(union event_data *ev);
-
 /// helpers
-static void handle_engine_report(void);
+//static void handle_engine_report(void);
 //static void handle_command_report(void);
 //static void handle_poll_report(void);
 
@@ -97,13 +98,27 @@ void events_init(void) {
     pthread_cond_init(&evq.nonempty, NULL);
 }
 
-union event_data *event_data_new(event_t type) {
+void event_set_handler(event_handler_t *h) {
+  pthread_mutex_lock(&evq.lock);
+  event_handler = h;
+  pthread_mutex_unlock(&evq.lock);
+}
+
+union event_data *event_data_new(event_t type, free_event_data_t cb) {
     // FIXME: better not to allocate here, use object pool
     union event_data *ev = calloc(1, sizeof(union event_data));
     ev->type = type;
+    ev->free = cb;
     return ev;
 }
 
+void event_data_free(union event_data *ev) {
+  if (ev->free) {
+    (*ev).free(ev);
+  }
+}
+
+/*
 void event_data_free(union event_data *ev) {
     switch (ev->type) {
     case EVENT_EXEC_CODE_LINE:
@@ -113,7 +128,7 @@ void event_data_free(union event_data *ev) {
         free(ev->osc_event.path);
         free(ev->osc_event.from_host);
         free(ev->osc_event.from_port);
-        lo_message_free(ev->osc_event.msg);
+        //osc_message_free(ev->osc_event.msg);
         break;
     case EVENT_POLL_DATA:
         free(ev->poll_data.data);
@@ -123,6 +138,7 @@ void event_data_free(union event_data *ev) {
         break;
     }
 }
+*/
 
 // add an event to the q and signal if necessary
 void event_post(union event_data *ev) {
@@ -156,136 +172,13 @@ void event_loop(void) {
         ev = evq_pop();
         pthread_mutex_unlock(&evq.lock);
         if(ev != NULL) {
-            handle_event(ev);
+	  (*event_handler)(ev);
         }
     }
 }
 
-//------------------------------
-//-- static function definitions
-
-static void handle_event(union event_data *ev) {
-    switch(ev->type) {
-    case EVENT_EXEC_CODE_LINE:
-        w_handle_exec_code_line(ev->exec_code_line.line);
-        break;
-    case EVENT_METRO:
-        w_handle_metro(ev->metro.id, ev->metro.stage);
-        break;
-    case EVENT_KEY:
-        w_handle_key(ev->key.n, ev->key.val);
-        break;
-    case EVENT_ENC:
-        w_handle_enc(ev->enc.n, ev->enc.delta);
-        break;
-    case EVENT_BATTERY:
-        w_handle_battery(ev->battery.percent,
-                         ev->battery.current);
-        break;
-    case EVENT_POWER:
-        w_handle_power(ev->power.present);
-        break;
-    case EVENT_STAT:
-        w_handle_stat(ev->stat.disk, ev->stat.temp, ev->stat.cpu);
-        break;
-    case EVENT_MONOME_ADD:
-        w_handle_monome_add(ev->monome_add.dev);
-        break;
-    case EVENT_MONOME_REMOVE:
-        w_handle_monome_remove(ev->monome_remove.id);
-        break;
-    case EVENT_GRID_KEY:
-        w_handle_grid_key(ev->grid_key.id,
-                          ev->grid_key.x,
-                          ev->grid_key.y,
-                          ev->grid_key.state);
-        break;
-    case EVENT_ARC_ENCODER_DELTA:
-        w_handle_arc_encoder_delta(ev->arc_encoder_delta.id,
-                                   ev->arc_encoder_delta.number,
-                                   ev->arc_encoder_delta.delta);
-        break;
-    case EVENT_ARC_ENCODER_KEY:
-        w_handle_arc_encoder_key(ev->arc_encoder_key.id,
-                                 ev->arc_encoder_key.number,
-                                 ev->arc_encoder_key.state);
-        break;
-    case EVENT_HID_ADD:
-        w_handle_hid_add(ev->hid_add.dev);
-        break;
-    case EVENT_HID_REMOVE:
-        w_handle_hid_remove(ev->hid_remove.id);
-        break;
-    case EVENT_HID_EVENT:
-        w_handle_hid_event(ev->hid_event.id,
-                           ev->hid_event.type,
-                           ev->hid_event.code,
-                           ev->hid_event.value);
-        break;
-    case EVENT_MIDI_ADD:
-        w_handle_midi_add(ev->midi_add.dev);
-        break;
-    case EVENT_MIDI_REMOVE:
-        w_handle_midi_remove(ev->midi_remove.id);
-        break;
-    case EVENT_MIDI_EVENT:
-        w_handle_midi_event(ev->midi_event.id, ev->midi_event.data, ev->midi_event.nbytes);
-        break;
-    case EVENT_OSC:
-        w_handle_osc_event(ev->osc_event.from_host,
-            ev->osc_event.from_port,
-            ev->osc_event.path,
-            ev->osc_event.msg);
-        break;
-    case EVENT_ENGINE_REPORT:
-        handle_engine_report();
-        break;
-    /* case EVENT_COMMAND_REPORT: */
-    /*     handle_command_report(); */
-    /*     break; */
-    /* case EVENT_POLL_REPORT: */
-    /*     handle_poll_report(); */
-    /*     break; */
-    case EVENT_ENGINE_LOADED:
-      w_handle_engine_loaded();
-      break;
-    case EVENT_POLL_VALUE:
-        w_handle_poll_value(ev->poll_value.idx, ev->poll_value.value);
-        break;
-    case EVENT_POLL_DATA:
-        w_handle_poll_data(ev->poll_data.idx,
-                           ev->poll_data.size,
-                           ev->poll_data.data);
-        break;
-    case EVENT_POLL_IO_LEVELS:
-        w_handle_poll_io_levels(ev->poll_io_levels.value.bytes);
-        break;
-    case EVENT_STARTUP_READY_OK:
-        w_handle_startup_ready_ok();
-        break;
-    case EVENT_STARTUP_READY_TIMEOUT:
-        w_handle_startup_ready_timeout();
-        break;
-    case EVENT_RESET_LVM:
-        w_reset_lvm();
-        break;
-    case EVENT_QUIT:
-        quit = true;
-        break;
-    } /* switch */
-
+static void null_handle_event(union event_data *ev) {
     event_data_free(ev);
 }
 
-//---------------------------------
-//---- helpers
-
-//--- reports
-void handle_engine_report(void) {
-    o_lock_descriptors();
-    const char **p = o_get_engine_names();
-    const int n = o_get_num_engines();
-    w_handle_engine_report(p, n);
-    o_unlock_descriptors();
-}
 

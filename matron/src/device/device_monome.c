@@ -140,7 +140,7 @@ void dev_monome_refresh(struct dev_monome *md) {
 static inline void
 grid_key_event(const monome_event_t *e, void *p, int state) {
     struct dev_monome *md = (struct dev_monome *)p;
-    union event_data *ev = event_data_new(EVENT_GRID_KEY);
+    union event_data *ev = event_data_new(EVENT_GRID_KEY, NULL);
     ev->grid_key.id = md->dev.id;
     ev->grid_key.x = e->grid.x;
     ev->grid_key.y = e->grid.y;
@@ -158,7 +158,7 @@ void dev_monome_handle_lift(const monome_event_t *e, void *p) {
 
 void dev_monome_handle_encoder_delta(const monome_event_t *e, void *p) {
     struct dev_monome *md = (struct dev_monome *)p;
-    union event_data *ev = event_data_new(EVENT_ARC_ENCODER_DELTA);
+    union event_data *ev = event_data_new(EVENT_ARC_ENCODER_DELTA, NULL);
     ev->arc_encoder_delta.id = md->dev.id;
     ev->arc_encoder_delta.number = e->encoder.number;
     ev->arc_encoder_delta.delta = e->encoder.delta;
@@ -167,7 +167,7 @@ void dev_monome_handle_encoder_delta(const monome_event_t *e, void *p) {
 
 void dev_monome_handle_encoder_press(const monome_event_t *e, void *p) {
     struct dev_monome *md = (struct dev_monome *)p;
-    union event_data *ev = event_data_new(EVENT_ARC_ENCODER_KEY);
+    union event_data *ev = event_data_new(EVENT_ARC_ENCODER_KEY, NULL);
     ev->arc_encoder_key.id = md->dev.id;
     ev->arc_encoder_key.number = e->encoder.number;
     ev->arc_encoder_key.state = 1;
@@ -176,7 +176,7 @@ void dev_monome_handle_encoder_press(const monome_event_t *e, void *p) {
 
 void dev_monome_handle_encoder_lift(const monome_event_t *e, void *p) {
     struct dev_monome *md = (struct dev_monome *)p;
-    union event_data *ev = event_data_new(EVENT_ARC_ENCODER_KEY);
+    union event_data *ev = event_data_new(EVENT_ARC_ENCODER_KEY, NULL);
     ev->arc_encoder_key.id = md->dev.id;
     ev->arc_encoder_key.number = e->encoder.number;
     ev->arc_encoder_key.state = 0;

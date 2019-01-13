@@ -80,9 +80,9 @@ void* hello_loop(void * p) {
     }
 
     if(timeout) {
-        event_post( event_data_new(EVENT_STARTUP_READY_TIMEOUT) );
+      event_post( event_data_new(EVENT_STARTUP_READY_TIMEOUT, NULL) );
     } else {
-        event_post( event_data_new(EVENT_STARTUP_READY_OK) );
+      event_post( event_data_new(EVENT_STARTUP_READY_OK, NULL) );
     }
 
     thread_running = false;

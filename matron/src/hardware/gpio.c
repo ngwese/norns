@@ -94,7 +94,7 @@ void *enc_check(void *x) {
         for(i=0;i<rd/sizeof(struct input_event);i++) {
             if(event[i].type) { // make sure it's not EV_SYN == 0
                 //fprintf(stderr, "enc%d = %d\n", n, event[i].value);
-                union event_data *ev = event_data_new(EVENT_ENC);
+	      union event_data *ev = event_data_new(EVENT_ENC, NULL);
                 ev->enc.n = n + 1;
                 ev->enc.delta = event[i].value;
                 event_post(ev);
@@ -118,7 +118,7 @@ void *key_check(void *x) {
         for(i=0;i<rd/sizeof(struct input_event);i++) {
             if(event[i].type) { // make sure it's not EV_SYN == 0
                 //fprintf(stderr, "enc%d = %d\n", n, event[i].value);
-                union event_data *ev = event_data_new(EVENT_KEY);
+	      union event_data *ev = event_data_new(EVENT_KEY, NULL);
                 ev->key.n = event[i].code;
                 ev->key.val = event[i].value;
                 event_post(ev);

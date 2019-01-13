@@ -690,7 +690,7 @@ int handle_engine_report_end(const char *path,
                              void *data,
                              void *user_data) {
     // no arguments; post event
-    event_post( event_data_new(EVENT_ENGINE_REPORT) );
+  event_post( event_data_new(EVENT_ENGINE_REPORT, NULL) );
     return 0;
 }
 
@@ -763,7 +763,7 @@ int handle_poll_report_entry(const char *path,
 int handle_poll_report_end(const char *path, const char *types, lo_arg **argv,
                            int argc, void *data, void *user_data) {
 
-    //event_post( event_data_new(EVENT_POLL_REPORT) );
+    //event_post( event_data_new(EVENT_POLL_REPORT, NULL) );
     needPollReport = false;
     test_engine_load_done();
     return 0;
@@ -773,18 +773,24 @@ int handle_poll_value(const char *path, const char *types, lo_arg **argv,
                       int argc, void *data, void *user_data) {
 
     assert(argc > 1);
-    union event_data *ev = event_data_new(EVENT_POLL_VALUE);
+    union event_data *ev = event_data_new(EVENT_POLL_VALUE, NULL);
     ev->poll_value.idx = argv[0]->i;
     ev->poll_value.value = argv[1]->f;
     event_post(ev);
     return 0;
 }
 
+static void free_event_poll_data(union event_data *ev) {
+  if (ev->type == EVENT_POLL_DATA) {
+    free(ev->poll_data.data);
+  }
+}
+
 int handle_poll_data(const char *path, const char *types, lo_arg **argv,
                      int argc, void *data, void *user_data) {
 
     assert(argc > 1);
-    union event_data *ev = event_data_new(EVENT_POLL_DATA);
+    union event_data *ev = event_data_new(EVENT_POLL_DATA, free_event_poll_data);
     ev->poll_data.idx = argv[0]->i;
     uint8_t *blobdata = (uint8_t *)lo_blob_dataptr( (lo_blob)argv[1] );
     int sz = lo_blob_datasize( (lo_blob)argv[1] );
@@ -799,7 +805,7 @@ int handle_poll_io_levels(const char *path, const char *types, lo_arg **argv,
                           int argc, void *data, void *user_data) {
 
     assert(argc > 0);
-    union event_data *ev = event_data_new(EVENT_POLL_IO_LEVELS);
+    union event_data *ev = event_data_new(EVENT_POLL_IO_LEVELS, NULL);
     uint8_t *blobdata = (uint8_t *)lo_blob_dataptr( (lo_blob)argv[0] );
     int sz = lo_blob_datasize( (lo_blob)argv[0] );
     assert( sz == sizeof(quad_levels_t) );
@@ -829,7 +835,7 @@ void lo_error_handler(int num, const char *m, const char *path) {
 
 void test_engine_load_done() {
     if( !get_need_reports() ) {
-        union event_data *ev = event_data_new(EVENT_ENGINE_LOADED);
+      union event_data *ev = event_data_new(EVENT_ENGINE_LOADED, NULL);
         event_post(ev);
     }
 }

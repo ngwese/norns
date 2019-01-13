@@ -1,33 +1,58 @@
 top = '..'
 
 def build(bld):
-    matron_sources = [
+    cflags=['-O3', '-Wall']
+
+    matron_lib_sources = [
         'src/device/device.c',
         'src/device/device_hid.c',
         'src/device/device_list.c',
         'src/device/device_midi.c',
         'src/device/device_monitor.c',
         'src/device/device_monome.c',
-        'src/osc.c',
         'src/hardware/battery.c',
         'src/hardware/gpio.c',
         'src/hardware/i2c.c',
         'src/hardware/screen.c',
         'src/hardware/stat.c',
-        'src/args.c',
         'src/events.c',
+        'src/metro.c',
+    ]
+
+    bld.shlib(
+        source=matron_lib_sources,
+        target='matron',
+        name='LIBMATRON',
+        includes=[
+            'src/device',
+            'src/hardware',
+            'src',
+        ], use=[
+            'ALSA',
+            'LIBUDEV',
+            'LIBEVDEV',
+            'CAIRO',
+            'CAIRO-FT',
+            'LIBMONOME',
+        ], lib=[
+            'pthread',
+        ], cflags=cflags)
+
+    matron_cmd_sources = [
+        'src/args.c',
+        'src/event_handler.c',
         'src/hello.c',
         'src/input.c',
         'src/lua_eval.c',
         'src/main.c',
-        'src/metro.c',
         'src/oracle.c',
+        'src/osc.c',
         'src/weaver.c',
         'src/snd_file.c'
     ]
 
     bld.program(features='c cprogram',
-        source=matron_sources,
+        source=matron_cmd_sources,
         target='matron',
         includes=[
             'src',
@@ -35,16 +60,11 @@ def build(bld):
             'src/hardware',
             'lua',
         ], use=[
-            'ALSA',
-            'LIBUDEV',
-            'LIBEVDEV',
-            'CAIRO',
-            'CAIRO-FT',
+            'LIBMATRON',
             'LUA53',
             'LIBLO',
-            'LIBMONOME',
             'SNDFILE',
             'AVAHI-COMPAT-LIBDNS_SD',
         ], lib=[
             'pthread', 'm'
-        ], cflags=['-O3', '-Wall'])
+        ], cflags=cflags)

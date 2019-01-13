@@ -74,15 +74,15 @@ void dev_list_add(device_t type, const char *path, const char *name) {
     union event_data *ev;
     switch (type) {
     case DEV_TYPE_MONOME:
-        ev = event_data_new(EVENT_MONOME_ADD);
+      ev = event_data_new(EVENT_MONOME_ADD, NULL);
         ev->monome_add.dev = d;
         break;
     case DEV_TYPE_HID:
-        ev = event_data_new(EVENT_HID_ADD);
+      ev = event_data_new(EVENT_HID_ADD, NULL);
         ev->hid_add.dev = d;
         break;
     case DEV_TYPE_MIDI:
-        ev = event_data_new(EVENT_MIDI_ADD);
+      ev = event_data_new(EVENT_MIDI_ADD, NULL);
         ev->midi_add.dev = d;
         break;
     default:
@@ -98,15 +98,15 @@ void dev_list_remove(device_t type, const char *node) {
     union event_data *ev;
     switch(type) {
     case DEV_TYPE_MONOME:
-        ev = event_data_new(EVENT_MONOME_REMOVE);
+      ev = event_data_new(EVENT_MONOME_REMOVE, NULL);
         ev->monome_remove.id = dn->d->base.id;
         break;
     case DEV_TYPE_HID:
-        ev = event_data_new(EVENT_HID_REMOVE);
+      ev = event_data_new(EVENT_HID_REMOVE, NULL);
         ev->hid_remove.id = dn->d->base.id;
         break;
     case DEV_TYPE_MIDI:
-        ev = event_data_new(EVENT_MIDI_REMOVE);
+      ev = event_data_new(EVENT_MIDI_REMOVE, NULL);
         ev->midi_remove.id = dn->d->base.id;
         break;
     default:

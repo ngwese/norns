@@ -122,7 +122,7 @@ void *stat_check(void *x) {
       _temp = temp;
       _cpu = cpu;
 
-      union event_data *ev = event_data_new(EVENT_STAT);
+      union event_data *ev = event_data_new(EVENT_STAT, NULL);
       ev->stat.disk = disk;
       ev->stat.temp = temp;
       ev->stat.cpu = cpu;

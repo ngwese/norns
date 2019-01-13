@@ -53,7 +53,7 @@ void* dev_midi_start(void *self) {
         read = snd_rawmidi_read(midi->handle_in, &byte, 1);
 
         if (byte >= 0xf8) {
-            ev = event_data_new(EVENT_MIDI_EVENT);
+	  ev = event_data_new(EVENT_MIDI_EVENT, NULL);
             ev->midi_event.id = midi->dev.id;
             ev->midi_event.data[0] = byte;
             ev->midi_event.nbytes = 1;
@@ -104,7 +104,7 @@ void* dev_midi_start(void *self) {
             }
 
             if (msg_pos == msg_len) {
-                ev = event_data_new(EVENT_MIDI_EVENT);
+	      ev = event_data_new(EVENT_MIDI_EVENT, NULL);
                 ev->midi_event.id = midi->dev.id;
                 ev->midi_event.data[0] = msg_buf[0];
                 ev->midi_event.data[1] = msg_len > 1 ? msg_buf[1] : 0;

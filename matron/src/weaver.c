@@ -407,7 +407,7 @@ int _reset_lvm(lua_State *l) {
   lua_settop(l, 0); 
 
   // do this through the event loop, not from inside a lua pcall
-  event_post( event_data_new(EVENT_RESET_LVM) );
+  event_post( event_data_new(EVENT_RESET_LVM, NULL) );
 
   return 0;
 }

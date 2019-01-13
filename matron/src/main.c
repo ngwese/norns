@@ -13,6 +13,7 @@
 #include "device_monome.h"
 #include "device_midi.h"
 #include "events.h"
+#include "event_handler.h"
 #include "battery.h"
 #include "gpio.h"
 #include "hello.h"
@@ -49,6 +50,7 @@ int main(int argc, char **argv) {
     print_version();
 
     events_init(); // <-- must come first!
+    event_set_handler(handle_event);
     screen_init();
 
     metros_init();
