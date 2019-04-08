@@ -127,3 +127,9 @@ void dev_hid_deinit(void *self) {
     TEST_NULL_AND_FREE(di->num_codes);
     TEST_NULL_AND_FREE(di->types);
 }
+
+void dev_hid_send(void *self, uint8_t cmd, uint8_t value) {
+  struct dev_hid *di = (struct dev_hid *)self;
+  
+}
+  

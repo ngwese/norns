@@ -29,3 +29,4 @@ struct dev_hid {
 extern int dev_hid_init(void *self);
 extern void *dev_hid_start(void *self);
 extern void dev_hid_deinit(void *self);
+extern void dev_hid_send(void *self, uint8_t cmd, uint8_t value);
