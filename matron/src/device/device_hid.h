@@ -13,6 +13,7 @@ typedef uint16_t dev_code_t;
 struct dev_hid {
     struct dev_common base;
     struct libevdev *dev;
+    struct libevdev_uinput *uinput_dev;
     // identifiers
     dev_vid_t vid;
     dev_pid_t pid;
@@ -29,3 +30,4 @@ struct dev_hid {
 extern int dev_hid_init(void *self);
 extern void *dev_hid_start(void *self);
 extern void dev_hid_deinit(void *self);
+extern int dev_hid_send(void *self, uint32_t etype, uint32_t code, int32_t value);

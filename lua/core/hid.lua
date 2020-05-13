@@ -113,6 +113,10 @@ function Hid.update_devices()
   end
 end
 
+function Hid:send(etype, code, value)
+  return _norns.hid_send(self.dev, etype, code, value)
+end
+
 _norns.hid = {}
 
 -- hid devices

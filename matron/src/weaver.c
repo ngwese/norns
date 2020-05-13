@@ -114,6 +114,8 @@ static int _gain_hp(lua_State *l);
 // osc
 static int _osc_send(lua_State *l);
 static int _osc_send_crone(lua_State *l);
+// hid
+static int _hid_send(lua_State *l);
 // midi
 static int _midi_send(lua_State *l);
 
@@ -375,6 +377,9 @@ void w_init(void) {
     // osc
     lua_register_norns("osc_send", &_osc_send);
     lua_register_norns("osc_send_crone", &_osc_send_crone);
+
+    // hid
+    lua_register_norns("hid_send", &_hid_send);
 
     // midi
     lua_register_norns("midi_send", &_midi_send);
@@ -1041,6 +1046,35 @@ int _crow_send(lua_State *l) {
     lua_settop(l, 0);
 
     dev_crow_send(d, s);
+
+    return 0;
+}
+
+/***
+ * hid: send
+ * @function hid_send
+ */
+int _hid_send(lua_State *l) {
+    struct dev_hid *di;
+    uint32_t etype;
+    dev_code_t code;
+    int value;
+
+    lua_check_num_args(4);
+
+    luaL_checktype(l, 1, LUA_TLIGHTUSERDATA);
+    di = lua_touserdata(l, 1);
+
+    luaL_checkinteger(l, 2);
+    etype = lua_tointeger(l, 2);
+
+    luaL_checkinteger(l, 3);
+    code = lua_tointeger(l, 3);
+
+    luaL_checkinteger(l, 4);
+    value = lua_tointeger(l, 4);
+
+    dev_hid_send(di, etype, code, value);
 
     return 0;
 }

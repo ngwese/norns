@@ -1,12 +1,14 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <libevdev/libevdev-uinput.h>
 #include <linux/input.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #include "device_hid.h"
 #include "events.h"
@@ -57,6 +59,7 @@ int dev_hid_init(void *self) {
     struct dev_hid *d = (struct dev_hid *)self;
     struct dev_common *base = (struct dev_common *)self;
     struct libevdev *dev = NULL;
+    struct libevdev_uinput *uinput_dev = NULL;
     int ret = 1;
     int fd = open(d->base.path, O_RDONLY);
 
@@ -81,6 +84,13 @@ int dev_hid_init(void *self) {
 
     base->start = &dev_hid_start;
     base->deinit = &dev_hid_deinit;
+
+    // attempt to open uinput device
+    int rc = libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &uinput_dev);
+    if (rc < 0) {
+        fprintf(stderr, "failed to libevdev_uinput_create_from_device (%s)\n", strerror(-rc));
+    }
+    d->uinput_dev = uinput_dev;
 
     return 0;
 }
@@ -125,4 +135,27 @@ void dev_hid_deinit(void *self) {
     TEST_NULL_AND_FREE(di->codes);
     TEST_NULL_AND_FREE(di->num_codes);
     TEST_NULL_AND_FREE(di->types);
+
+    if (di->uinput_dev) {
+        libevdev_uinput_destroy(di->uinput_dev);
+    }
+    close(libevdev_get_fd(di->dev));
+    libevdev_free(di->dev);
+}
+
+// https://gitlab.freedesktop.org/libevdev/libevdev/-/blob/master/libevdev/libevdev-uinput.h
+int dev_hid_send(void *self, uint32_t etype, uint32_t code, int32_t value) {
+    struct dev_hid *di = (struct dev_hid *)self;
+    int rc = -1;
+
+    if (di->uinput_dev == NULL) {
+        fprintf(stderr, "uinput device unavailable\n");
+        return -1;
+    }
+
+    rc = libevdev_uinput_write_event(di->uinput_dev, etype, code, value);
+    if (rc < 0) {
+        fprintf(stderr, "libevdev_uinput_write_event failed (%s)\n", strerror(-rc));
+    }
+    return rc;
 }
