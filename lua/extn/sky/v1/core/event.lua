@@ -149,6 +149,11 @@ local function to_id(ch, num)
   return ch << 8 | num
 end
 
+local function note_id(event)
+  -- assumes event is a note
+  return sky.to_id(event.ch, event.num)
+end
+
 --- convert midi event object to a readable string
 -- @param event : event object (as created by the mk_* functions)
 local function to_string(event)
@@ -321,6 +326,8 @@ return {
   cycle = cycle,
   scalex = scalex,
   build_scalex = build_scalex,
+
+  note_id = note_id,
 
   -- data
   types = types,
