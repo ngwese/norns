@@ -31,15 +31,36 @@ end
 local type_names = invert(types)
 
 --
+-- note serial numbers ()
+--
+local _note_serial = 0
+
+local function note_next_serial()
+  _note_serial = _note_serial + 1
+  return _note_serial
+end
+
+local function note_last_serial()
+  return _note_serial
+end
+
+--
 -- event creation (compatible with midi:send(...))
 --
 
 local function mk_note_on(note, vel, ch, duration)
-  return { type = types.NOTE_ON, ch = ch or 1, note = note, vel = vel, duration = duration }
+  return {
+    type = types.NOTE_ON, ch = ch or 1, note = note, vel = vel,
+    duration = duration,
+    serial = note_next_serial(),
+  }
 end
 
-local function mk_note_off(note, vel, ch)
-  return { type = types.NOTE_OFF, ch = ch or 1, note = note, vel = vel }
+local function mk_note_off(note, vel, ch, serial)
+  return {
+    type = types.NOTE_OFF, ch = ch or 1, note = note, vel = vel,
+    serial = serial or note_next_serial(),
+  }
 end
 
 local function mk_channel_pressure(val, ch)
@@ -283,6 +304,8 @@ return {
   mk_gate = mk_gate,
 
   -- helpers
+  note_last_serial = note_last_serial,
+  note_next_serial = note_next_serial,
   to_hz = to_hz,
   to_id = to_id,
   to_bend_range = to_bend_range,

@@ -2,6 +2,7 @@
 -- @module process
 -- @alias process
 
+local util = require('util')
 local Deque = require('container/deque')
 sky.use('core/object')
 
@@ -100,6 +101,9 @@ function Input:on_midi_event(data)
 
   local event = midi.to_msg(data)
   if event ~= nil then
+    if sky.is_note(event) then
+      event.serial = sky.note_next_serial()
+    end
     self.chain:process(event)
   end
 end
@@ -131,6 +135,10 @@ local Output = Device:extend()
 function Output:new(props)
   Output.super.new(self, props)
 
+  -- for pairing note_off(s) across channel changes
+  self._last_serial = sky.note_last_serial()
+  self._previous_ch = {}
+
   -- determine which device to use
   local d = props.device
   if d == nil then
@@ -148,6 +156,7 @@ function Output:new(props)
   end
 
   self:set_device(d)
+  self:set_channel(props.channel)
 
   if self.device == nil then
     local n = self.name or "<none>"
@@ -163,12 +172,64 @@ function Output:set_device(device)
   self.device = device
 end
 
+function Output:set_channel(ch)
+  self._last_serial = sky.note_last_serial()
+  if ch == nil then
+    self.channel = ch  -- do not channelize
+  else
+    self.channel = util.clamp(ch, 1, 16)
+  end
+  print("set_channel()", self._last_serial, ch)
+end
+
+function Output:_send_with_ch(event, ch)
+  -- temporarily change ch to avoid making a copy
+  local existing = event.ch
+  event.ch = ch or self.channel
+  self.device:send(event)
+  --`event.ch = existing
+  if sky.is_type(event, sky.types.NOTE_ON) then
+    self._previous_ch[event.serial] = self.channel
+  end
+
+  if sky.is_type(event, sky.types.NOTE_OFF) then
+    self._previous_ch[event.serial] = nil
+  end
+end
+
 function Output:process(event, output)
   local t = event.type
   if self.enabled and self.device and (t ~= nil) then
     -- filter out non-midi events
-    if sky.type_names[t] ~= nil then
-      self.device:send(event)
+    if sky.type_names[t] ~= nil then  -- FIXME: find a better test than this
+      if self.channel then
+        -- need to set specific channel
+        if sky.is_note(event) then
+          local serial = event.serial
+          if serial == nil then
+            print("NO SERIAL", sky.to_string(event))
+          end
+          if serial and serial <= self._last_serial then
+            -- note relates to events before the channel was changed, retain channel to avoid hung notes
+            print("RETAIN CH", sky.to_string(event))
+            local old = self._previous_ch[event.serial]
+            if old then
+              self._send_with_ch(event, old)
+            else
+              self.device:send(event)
+            end
+          else
+            -- change note channel
+            self:_send_with_ch(event)
+          end
+        else
+          -- change midi event channel
+          self:_send_with_ch(event)
+        end
+      else
+        -- retain existing ch
+        self.device:send(event)
+      end
     end
   end
 

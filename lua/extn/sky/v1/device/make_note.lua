@@ -39,7 +39,7 @@ function MakeNote:process(event, output, state)
     output(event)
 
     if event.duration ~= nil then
-      local note_off = sky.mk_note_off(event.note, 0, event.ch)
+      local note_off = sky.mk_note_off(event.note, 0, event.ch, event.serial)
       note_off.from = self
       self._scheduler:sleep(event.duration, note_off)
     end
