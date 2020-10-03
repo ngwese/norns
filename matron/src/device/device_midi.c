@@ -8,6 +8,8 @@
 #include "device.h"
 #include "device_midi.h"
 
+#define DEV_MIDI_RX_BUFFER_SIZE 512
+
 unsigned int dev_midi_port_count(const char *path) {
     int card;
     int alsa_dev;
@@ -92,7 +94,146 @@ void dev_midi_deinit(void *self) {
     snd_rawmidi_close(midi->handle_out);
 }
 
+inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *status, uint8_t *data_len, struct dev_midi *midi) {
+    union event_data *ev;
+
+    uint8_t *byte = rx_buffer;
+    uint8_t *end = rx_buffer + size;
+
+    // uint8_t status = 0;
+    // uint8_t data_len = 0;
+    uint8_t i;
+
+    // normalize events, handling running status
+    while (byte < end) {
+        // system real time
+        // if ((*byte >= 0xf8) && (*byte <= 0xff)) {
+        if (*byte >= 0xf8) {
+            clock_midi_handle_message(*byte++);
+            *data_len = 0;
+            goto post;
+        }
+
+        // channel voice messages
+        switch (*byte & 0xf0) {
+        case 0x80:
+        case 0x90:
+        case 0xa0:
+        case 0xb0:
+        case 0xe0:
+            *status = *byte++;
+            *data_len = 2;
+            goto post;
+        case 0xc0:
+        case 0xd0:
+            *status = *byte++;
+            *data_len = 1;
+            goto post;
+        }
+
+        // channel mode messages
+        if (*byte >= 0x79 && *byte <= 0x7f) {
+            *status = *byte++;
+            *data_len = 1;
+            goto post;
+        }
+
+        // system common messages
+        switch (*byte) {
+        case 0xf2:
+            *status = *byte++;
+            *data_len = 2;
+            goto post;
+        case 0xf1:
+        case 0xf3:
+            *status = *byte++;
+            *data_len = 1;
+            goto post;
+        case 0xf6:
+            *status = *byte++;
+            *data_len = 0;
+            goto post;
+        }
+
+        // system exclusive, potentially continued from previous rx buffer
+        if (*byte == 0xf7 || *status == 0xf7) {
+            *status = *byte;
+            *data_len = 0;
+            // consume and discard
+            while (*byte != 0xf0 && byte <= end) { ++byte; };
+            continue;
+        }
+
+        // no status byte, running status applies, prior status and data len
+        // applies
+        assert(status != 0);
+
+    post:
+        ev = event_data_new(EVENT_MIDI_EVENT);
+        ev->midi_event.id = midi->dev.id;
+        ev->midi_event.nbytes = *data_len;
+        ev->midi_event.data[0] = *status;
+        for (i = 1; i <= *data_len; i++) {
+            ev->midi_event.data[i] = *byte++;
+        }
+        fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", *data_len,
+            ev->midi_event.data[0],
+            ev->midi_event.data[1],
+            ev->midi_event.data[2]
+        );
+        event_post(ev);
+    }
+
+    ssize_t rtn = byte - rx_buffer;
+    fprintf(stderr, "buf 0x%p, read %zd, rtn %zd\n", rx_buffer, size, rtn);
+    return rtn;
+}
+
 void *dev_midi_start(void *self) {
+    struct dev_midi *midi = (struct dev_midi *)self;
+    struct dev_common *base = (struct dev_common *)self;
+
+    snd_rawmidi_status_t *status = NULL;
+    ssize_t xruns;
+
+    ssize_t read = 0;
+    uint8_t rx_buffer[DEV_MIDI_RX_BUFFER_SIZE];
+    uint8_t data_status = 0;
+    uint8_t data_len = 0;
+
+    if (snd_rawmidi_status_malloc(&status) != 0) {
+        fprintf(stderr, "failed allocating rawmidi status, stopping device: %s\n", base->name);
+        return NULL;
+    }
+
+    do {
+        read = snd_rawmidi_read(midi->handle_in, rx_buffer, DEV_MIDI_RX_BUFFER_SIZE);
+        if (dev_midi_post_events(rx_buffer, read, &data_status, &data_len, midi) != read) {
+            fprintf(stderr, "midi event post inconsistency for device: %s\n", base->name);
+        }
+
+        // TODO: verify this is not overly expensive to do
+        if (snd_rawmidi_status(midi->handle_in, status) == 0) {
+            xruns = snd_rawmidi_status_get_xruns(status);
+            if (xruns > 0) {
+                fprintf(stderr, "xruns (%d) for midi device: %s\n", xruns, base->name);
+                // TODO: validate that flushing the ring buffer gets us back in a good state
+                snd_rawmidi_drop(midi->handle_in);
+                status = 0;
+                data_len = 0;
+            }
+        }
+
+    } while (read > 0);
+
+    if (status) {
+        snd_rawmidi_status_free(status);
+    }
+
+    return NULL;
+}
+
+void *dev_midi_start_old(void *self) {
     struct dev_midi *midi = (struct dev_midi *)self;
     union event_data *ev;
 
