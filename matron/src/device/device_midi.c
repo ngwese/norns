@@ -207,6 +207,157 @@ inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *s
     return rtn;
 }
 
+static inline bool is_status_byte(uint8_t byte) {
+    return (byte & 0xf0) >> 7;
+}
+
+static inline bool is_status_real_time(uint8_t byte) {
+    return byte >= 0xf8;
+}
+
+static inline uint8_t midi_msg_len(uint8_t status) {
+    uint8_t upper = status & 0xf0;
+
+    // channel voice messages
+    switch (upper) {
+    case 0x80:  // note off
+    case 0x90:  // note on
+    case 0xa0:  // polyphonic key pressure
+    case 0xb0:  // control change
+    case 0xe0:  // pitch bend
+        return 3;
+    case 0xc0:  // program change
+    case 0xd0:  // channel pressure
+        return 2;
+    }
+
+    // system real-time messages
+    switch (status) {
+    case 0xf8:  // timing clock
+    case 0xfa:  // start sequence
+    case 0xfb:  // continue sequence
+    case 0xfc:  // stop sequence
+    case 0xfe:  // active sensing
+    case 0xff:  // system reset
+        return 1;
+    }
+
+    // system common messages
+    switch (status) {
+    case 0xf1:  // midi timing code
+    case 0xf3:  // song select
+        return 2;
+    case 0xf2:  // song position pointer
+        return 3;
+    case 0xf6:  // tune request
+        return 1;
+    }
+
+    // system exclusive messages
+    switch (status) {
+    case 0xf7:  // sysex start
+    case 0xf0:  // sysex stop
+        return 0; // special case
+    }
+
+    // channel mode messages
+    return 2;
+}
+
+static inline ssize_t dev_midi_post_events2(uint8_t *rx_buffer, ssize_t size, uint8_t *prior_status, uint8_t *prior_len, struct dev_midi *midi) {
+    union event_data *ev;
+
+    bool collecting = false;
+    uint8_t msg_pos = 0;
+    uint8_t msg_len = 0;
+    uint8_t msg_buf[3];
+
+    uint8_t i;
+
+    fprintf(stderr, "START buf 0x%p, read %zd begin normalize // head 0x%02x\n", rx_buffer, size, *rx_buffer);
+
+    for (i = 0; i < size; i++) {
+        uint8_t byte = rx_buffer[i];
+
+        if (is_status_byte(byte)) {
+            if (collecting) {
+                collecting = false;
+                if (msg_pos != msg_len) {
+                    // new status before previous message was complete; assume
+                    // corruption
+                    fprintf(stderr, ">>>> dropping invalid midi message\n");
+                } else {
+                    // post previous message
+                    ev = event_data_new(EVENT_MIDI_EVENT);
+                    ev->midi_event.id = midi->dev.id;
+                    ev->midi_event.nbytes = msg_len;
+                    for (uint8_t n = 0; n < msg_len; n++) {
+                        ev->midi_event.data[n] = msg_buf[n];
+                    }
+                    fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", msg_len,
+                        ev->midi_event.data[0],
+                        ev->midi_event.data[1],
+                        ev->midi_event.data[2]
+                    );
+                    event_post(ev);
+
+                    // maintain state for running status if not system rt
+                    if (!is_status_real_time(msg_buf[0])) {
+                        *prior_status = msg_buf[0];
+                        *prior_len = msg_len;
+                    }
+                }
+            }
+
+            // start collecting new message
+            msg_pos = 0;
+            msg_len = midi_msg_len(byte);
+            msg_buf[msg_pos++] = byte;
+            collecting = true;
+
+        } else {
+            // not a status byte
+            if (collecting) {
+                msg_buf[msg_pos++] = byte;
+            } else if (*prior_status != 0) {
+                fprintf(stderr, "RMS byte: 0x%02x -- last s 0x%x n %u\n", byte, *prior_status, *prior_len);
+                msg_pos = 0;
+                msg_len = *prior_len;
+                msg_buf[msg_pos++] = *prior_status;
+                msg_buf[msg_pos++] = byte;
+                collecting = true;
+            }
+        }
+    }
+
+    // send completed message
+    if (collecting && (msg_pos == msg_len)) {
+        // post previous message
+        ev = event_data_new(EVENT_MIDI_EVENT);
+        ev->midi_event.id = midi->dev.id;
+        ev->midi_event.nbytes = msg_len;
+        for (uint8_t n = 0; n < msg_len; n++) {
+            ev->midi_event.data[n] = msg_buf[n];
+        }
+        fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", msg_len,
+            ev->midi_event.data[0],
+            ev->midi_event.data[1],
+            ev->midi_event.data[2]
+        );
+        event_post(ev);
+
+        // maintain state for running status if not system rt
+        if (!is_status_real_time(msg_buf[0])) {
+            *prior_status = msg_buf[0];
+            *prior_len = msg_len;
+        }
+    }
+
+    fprintf(stderr, "  END buf 0x%p, read %zd, rtn %zd\n", rx_buffer, size, i);
+
+    return i;
+}
+
 void *dev_midi_start(void *self) {
     struct dev_midi *midi = (struct dev_midi *)self;
     struct dev_common *base = (struct dev_common *)self;
@@ -226,7 +377,7 @@ void *dev_midi_start(void *self) {
 
     do {
         read = snd_rawmidi_read(midi->handle_in, rx_buffer, DEV_MIDI_RX_BUFFER_SIZE);
-        if (dev_midi_post_events(rx_buffer, read, &data_status, &data_len, midi) != read) {
+        if (dev_midi_post_events2(rx_buffer, read, &data_status, &data_len, midi) != read) {
             fprintf(stderr, "midi event post inconsistency for device: %s\n", base->name);
         }
 
