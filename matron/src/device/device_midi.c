@@ -264,96 +264,97 @@ static inline uint8_t midi_msg_len(uint8_t status) {
     return 2;
 }
 
-static inline ssize_t dev_midi_post_events2(uint8_t *rx_buffer, ssize_t size, uint8_t *prior_status, uint8_t *prior_len, struct dev_midi *midi) {
-    union event_data *ev;
+typedef struct {
+    uint8_t buffer[DEV_MIDI_RX_BUFFER_SIZE];
 
-    bool collecting = false;
-    uint8_t msg_pos = 0;
-    uint8_t msg_len = 0;
+    uint8_t prior_status;
+    uint8_t prior_len;
+
     uint8_t msg_buf[3];
+    uint8_t msg_pos;
+    uint8_t msg_len;
+    bool    msg_started;
+    bool    msg_sysex;
+} midi_input_state_t;
 
-    uint8_t i;
+static inline void midi_input_msg_post(midi_input_state_t *state, struct dev_midi *midi) {
+    union event_data *ev = event_data_new(EVENT_MIDI_EVENT);
+    ev->midi_event.id = midi->dev.id;
+    ev->midi_event.nbytes = state->msg_len;
+    for (uint8_t n = 0; n < state->msg_len; n++) {
+        ev->midi_event.data[n] = state->msg_buf[n];
+    }
+    // fprintf(stderr, "POST[%d](%d // 0x%x 0x%x 0x%x)\n", midi->dev.id, state->msg_len,
+    //     ev->midi_event.data[0],
+    //     ev->midi_event.data[1],
+    //     ev->midi_event.data[2]
+    // );
+    event_post(ev);
+}
 
-    fprintf(stderr, "START buf 0x%p, read %zd begin normalize // head 0x%02x\n", rx_buffer, size, *rx_buffer);
+static inline void midi_input_update_status(midi_input_state_t *state, uint8_t new_status) {
+    // update (running_ statusr if not system rt status byte, assumes that
+    // msg_buf 0 is a valid status byte.
+    if (is_status_byte(new_status) && !is_status_real_time(new_status)) {
+        state->prior_status = state->msg_buf[0];
+        state->prior_len = state->msg_len;
+    }
+}
+
+static inline void midi_input_msg_start(midi_input_state_t *state, uint8_t status) {
+    state->msg_pos = 0;
+    state->msg_len = midi_msg_len(status);
+    state->msg_started = true;
+    state->msg_buf[state->msg_pos++] = status;
+    state->msg_sysex = status == 0xf7; 
+}
+
+static inline void midi_input_msg_end(midi_input_state_t *state) {
+    state->msg_started = false;
+    state->msg_pos = 0;
+}
+
+static inline void midi_input_msg_acc(midi_input_state_t *state, uint8_t byte) {
+    if (!state->msg_started) {
+        // running status
+        // fprintf(stderr, "RMS byte: 0x%02x -- last s 0x%x n %u\n", byte, state->prior_status, state->prior_len);
+        state->msg_started = true;
+        state->msg_buf[0] = state->prior_status;
+        state->msg_len = state->prior_len;
+        state->msg_pos++;
+    }
+    state->msg_buf[state->msg_pos++] = byte;
+}
+
+static inline bool midi_input_msg_is_complete(midi_input_state_t *state) {
+    // fprintf(stderr, "complete? started %d, pos %d, len %d\n", state->msg_started, state->msg_pos, state->msg_len);
+    return state->msg_started && (state->msg_len == state->msg_pos);
+}
+
+static inline ssize_t dev_midi_consume_buffer(midi_input_state_t *state, ssize_t size, struct dev_midi *midi) {
+    uint8_t i = 0;
+    uint8_t byte = 0;
+
+    // fprintf(stderr, "START read %zd // head 0x%02x\n", size, *(state->buffer));
 
     for (i = 0; i < size; i++) {
-        uint8_t byte = rx_buffer[i];
+        byte = state->buffer[i];
 
         if (is_status_byte(byte)) {
-            if (collecting) {
-                collecting = false;
-                if (msg_pos != msg_len) {
-                    // new status before previous message was complete; assume
-                    // corruption
-                    fprintf(stderr, ">>>> dropping invalid midi message\n");
-                } else {
-                    // post previous message
-                    ev = event_data_new(EVENT_MIDI_EVENT);
-                    ev->midi_event.id = midi->dev.id;
-                    ev->midi_event.nbytes = msg_len;
-                    for (uint8_t n = 0; n < msg_len; n++) {
-                        ev->midi_event.data[n] = msg_buf[n];
-                    }
-                    fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", msg_len,
-                        ev->midi_event.data[0],
-                        ev->midi_event.data[1],
-                        ev->midi_event.data[2]
-                    );
-                    event_post(ev);
-
-                    // maintain state for running status if not system rt
-                    if (!is_status_real_time(msg_buf[0])) {
-                        *prior_status = msg_buf[0];
-                        *prior_len = msg_len;
-                    }
-                }
-            }
-
-            // start collecting new message
-            msg_pos = 0;
-            msg_len = midi_msg_len(byte);
-            msg_buf[msg_pos++] = byte;
-            collecting = true;
-
+            midi_input_msg_start(state, byte);
         } else {
-            // not a status byte
-            if (collecting) {
-                msg_buf[msg_pos++] = byte;
-            } else if (*prior_status != 0) {
-                fprintf(stderr, "RMS byte: 0x%02x -- last s 0x%x n %u\n", byte, *prior_status, *prior_len);
-                msg_pos = 0;
-                msg_len = *prior_len;
-                msg_buf[msg_pos++] = *prior_status;
-                msg_buf[msg_pos++] = byte;
-                collecting = true;
-            }
+            midi_input_msg_acc(state, byte);
+        }
+
+        // send completed message
+        if (midi_input_msg_is_complete(state)) {
+            midi_input_msg_post(state, midi);
+            midi_input_update_status(state, byte);
+            midi_input_msg_end(state);
         }
     }
 
-    // send completed message
-    if (collecting && (msg_pos == msg_len)) {
-        // post previous message
-        ev = event_data_new(EVENT_MIDI_EVENT);
-        ev->midi_event.id = midi->dev.id;
-        ev->midi_event.nbytes = msg_len;
-        for (uint8_t n = 0; n < msg_len; n++) {
-            ev->midi_event.data[n] = msg_buf[n];
-        }
-        fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", msg_len,
-            ev->midi_event.data[0],
-            ev->midi_event.data[1],
-            ev->midi_event.data[2]
-        );
-        event_post(ev);
-
-        // maintain state for running status if not system rt
-        if (!is_status_real_time(msg_buf[0])) {
-            *prior_status = msg_buf[0];
-            *prior_len = msg_len;
-        }
-    }
-
-    fprintf(stderr, "  END buf 0x%p, read %zd, rtn %zd\n", rx_buffer, size, i);
+    // fprintf(stderr, "  END read %zd, rtn %zd\n", size, i);
 
     return i;
 }
@@ -363,12 +364,10 @@ void *dev_midi_start(void *self) {
     struct dev_common *base = (struct dev_common *)self;
 
     snd_rawmidi_status_t *status = NULL;
-    ssize_t xruns;
 
+    midi_input_state_t state;
     ssize_t read = 0;
-    uint8_t rx_buffer[DEV_MIDI_RX_BUFFER_SIZE];
-    uint8_t data_status = 0;
-    uint8_t data_len = 0;
+    ssize_t xruns;
 
     if (snd_rawmidi_status_malloc(&status) != 0) {
         fprintf(stderr, "failed allocating rawmidi status, stopping device: %s\n", base->name);
@@ -376,9 +375,9 @@ void *dev_midi_start(void *self) {
     }
 
     do {
-        read = snd_rawmidi_read(midi->handle_in, rx_buffer, DEV_MIDI_RX_BUFFER_SIZE);
-        if (dev_midi_post_events2(rx_buffer, read, &data_status, &data_len, midi) != read) {
-            fprintf(stderr, "midi event post inconsistency for device: %s\n", base->name);
+        read = snd_rawmidi_read(midi->handle_in, state.buffer, DEV_MIDI_RX_BUFFER_SIZE);
+        if (dev_midi_consume_buffer(&state, read, midi) != read) {
+            fprintf(stderr, "midi inconsistency for device: %s\n", base->name);
         }
 
         // TODO: verify this is not overly expensive to do
@@ -388,8 +387,6 @@ void *dev_midi_start(void *self) {
                 fprintf(stderr, "xruns (%d) for midi device: %s\n", xruns, base->name);
                 // TODO: validate that flushing the ring buffer gets us back in a good state
                 snd_rawmidi_drop(midi->handle_in);
-                status = 0;
-                data_len = 0;
             }
         }
 
