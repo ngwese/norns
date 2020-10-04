@@ -171,7 +171,7 @@ inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *s
     post:
         ev = event_data_new(EVENT_MIDI_EVENT);
         ev->midi_event.id = midi->dev.id;
-        ev->midi_event.nbytes = *data_len;
+        ev->midi_event.nbytes = *data_len + 1;
         ev->midi_event.data[0] = *status;
         for (i = 1; i <= *data_len; i++) {
             ev->midi_event.data[i] = *byte++;
