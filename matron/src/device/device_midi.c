@@ -60,6 +60,8 @@ int dev_midi_init(void *self, unsigned int port_index, bool multiport_device) {
     unsigned int alsa_dev;
     char *alsa_name;
 
+    snd_rawmidi_params_t *params;
+
     sscanf(base->path, "/dev/snd/midiC%uD%u", &alsa_card, &alsa_dev);
 
     if (asprintf(&alsa_name, "hw:%u,%u,%u", alsa_card, alsa_dev, port_index) < 0) {
@@ -71,6 +73,14 @@ int dev_midi_init(void *self, unsigned int port_index, bool multiport_device) {
         fprintf(stderr, "failed to open alsa device %s\n", alsa_name);
         return -1;
     }
+
+    snd_rawmidi_params_malloc(&params);
+    snd_rawmidi_params_current(midi->handle_in, params);
+    fprintf(stderr, "rawmidi params for: %s\n", base->name);
+    fprintf(stderr, "  avail_min: %u\n", snd_rawmidi_params_get_avail_min(params));
+    fprintf(stderr, "  buff_size: %u\n", snd_rawmidi_params_get_buffer_size(params));
+    fprintf(stderr, " no_sensing: %u\n", snd_rawmidi_params_get_no_active_sensing(params));
+    snd_rawmidi_params_free(params);
 
     char *name_with_port_index;
     if (multiport_device) {
@@ -103,6 +113,8 @@ inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *s
     // uint8_t status = 0;
     // uint8_t data_len = 0;
     uint8_t i;
+
+    fprintf(stderr, "buf 0x%p, read %zd begin normalize // head 0x%02x\n", rx_buffer, size, *byte);
 
     // normalize events, handling running status
     while (byte < end) {
@@ -157,6 +169,7 @@ inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *s
 
         // system exclusive, potentially continued from previous rx buffer
         if (*byte == 0xf7 || *status == 0xf7) {
+            fprintf(stderr, "eating sysx\n");
             *status = *byte;
             *data_len = 0;
             // consume and discard
@@ -166,7 +179,12 @@ inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *s
 
         // no status byte, running status applies, prior status and data len
         // applies
-        assert(status != 0);
+        fprintf(stderr, "RMS? byte: 0x%02x -- last s 0x%x n %u\n", *byte, *status, *data_len);
+        if (*status == 0) {
+            ++byte;
+            fprintf(stderr, "corrupt?, not posting");
+            continue;
+        }
 
     post:
         ev = event_data_new(EVENT_MIDI_EVENT);
@@ -176,7 +194,7 @@ inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *s
         for (i = 1; i <= *data_len; i++) {
             ev->midi_event.data[i] = *byte++;
         }
-        fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", *data_len,
+        fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", *data_len + 1,
             ev->midi_event.data[0],
             ev->midi_event.data[1],
             ev->midi_event.data[2]
