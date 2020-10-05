@@ -9,7 +9,7 @@
 #include "device.h"
 #include "device_midi.h"
 
-#define DEV_MIDI_RX_BUFFER_SIZE 512
+#define DEV_MIDI_INPUT_BUFFER_SIZE 128
 
 unsigned int dev_midi_port_count(const char *path) {
     int card;
@@ -182,7 +182,7 @@ static inline uint8_t midi_msg_len(uint8_t status) {
 }
 
 typedef struct {
-    uint8_t buffer[DEV_MIDI_RX_BUFFER_SIZE];
+    uint8_t buffer[DEV_MIDI_INPUT_BUFFER_SIZE];
 
     uint8_t prior_status;
     uint8_t prior_len;
@@ -239,7 +239,7 @@ static inline void midi_input_msg_acc(midi_input_state_t *state, uint8_t byte) {
         } else {
             // running status, start a new message
             // fprintf(stderr, "RMS byte: 0x%02x -- last s 0x%x n %u\n", byte,
-            // state->prior_status, state->prior_len);
+            //     state->prior_status, state->prior_len);
             state->msg_started = true;
             state->msg_pos = 0;
             state->msg_len = state->prior_len;
@@ -305,7 +305,7 @@ void *dev_midi_start(void *self) {
     }
 
     do {
-        read = snd_rawmidi_read(midi->handle_in, state.buffer, DEV_MIDI_RX_BUFFER_SIZE);
+        read = snd_rawmidi_read(midi->handle_in, state.buffer, DEV_MIDI_INPUT_BUFFER_SIZE);
         if (dev_midi_consume_buffer(&state, read, midi) != read) {
             fprintf(stderr, "midi inconsistency for device: %s\n", base->name);
         }
