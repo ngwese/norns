@@ -209,21 +209,19 @@ static inline void midi_input_msg_post(midi_input_state_t *state, struct dev_mid
     event_post(ev);
 }
 
-static inline void midi_input_update_status(midi_input_state_t *state, uint8_t new_status) {
-    // update (running_ statusr if not system rt status byte, assumes that
-    // msg_buf 0 is a valid status byte.
-    if (is_status_byte(new_status) && !is_status_real_time(new_status)) {
-        state->prior_status = state->msg_buf[0];
-        state->prior_len = state->msg_len;
-    }
-}
-
 static inline void midi_input_msg_start(midi_input_state_t *state, uint8_t status) {
     state->msg_pos = 0;
     state->msg_len = midi_msg_len(status);
     state->msg_started = true;
     state->msg_buf[state->msg_pos++] = status;
     state->msg_sysex = status == 0xf0;
+
+    // save for running status
+    if (!is_status_real_time(status)) {
+        state->prior_status = status;
+        state->prior_len = state->msg_len;
+        // fprintf(stderr, "set RS: 0x%x, len: %d\n", state->prior_status, state->prior_len);
+    }
 }
 
 static inline void midi_input_msg_end(midi_input_state_t *state) {
@@ -283,7 +281,6 @@ static inline ssize_t dev_midi_consume_buffer(midi_input_state_t *state, ssize_t
 
         if (midi_input_msg_is_complete(state)) {
             midi_input_msg_post(state, midi);
-            midi_input_update_status(state, byte);
             midi_input_msg_end(state);
         }
     }
