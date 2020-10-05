@@ -104,109 +104,6 @@ void dev_midi_deinit(void *self) {
     snd_rawmidi_close(midi->handle_out);
 }
 
-inline ssize_t dev_midi_post_events(uint8_t *rx_buffer, ssize_t size, uint8_t *status, uint8_t *data_len, struct dev_midi *midi) {
-    union event_data *ev;
-
-    uint8_t *byte = rx_buffer;
-    uint8_t *end = rx_buffer + size;
-
-    // uint8_t status = 0;
-    // uint8_t data_len = 0;
-    uint8_t i;
-
-    fprintf(stderr, "buf 0x%p, read %zd begin normalize // head 0x%02x\n", rx_buffer, size, *byte);
-
-    // normalize events, handling running status
-    while (byte < end) {
-        // system real time
-        // if ((*byte >= 0xf8) && (*byte <= 0xff)) {
-        if (*byte >= 0xf8) {
-            clock_midi_handle_message(*byte++);
-            *data_len = 0;
-            goto post;
-        }
-
-        // channel voice messages
-        switch (*byte & 0xf0) {
-        case 0x80:
-        case 0x90:
-        case 0xa0:
-        case 0xb0:
-        case 0xe0:
-            *status = *byte++;
-            *data_len = 2;
-            goto post;
-        case 0xc0:
-        case 0xd0:
-            *status = *byte++;
-            *data_len = 1;
-            goto post;
-        }
-
-        // channel mode messages
-        if (*byte >= 0x79 && *byte <= 0x7f) {
-            *status = *byte++;
-            *data_len = 1;
-            goto post;
-        }
-
-        // system common messages
-        switch (*byte) {
-        case 0xf2:
-            *status = *byte++;
-            *data_len = 2;
-            goto post;
-        case 0xf1:
-        case 0xf3:
-            *status = *byte++;
-            *data_len = 1;
-            goto post;
-        case 0xf6:
-            *status = *byte++;
-            *data_len = 0;
-            goto post;
-        }
-
-        // system exclusive, potentially continued from previous rx buffer
-        if (*byte == 0xf7 || *status == 0xf7) {
-            fprintf(stderr, "eating sysx\n");
-            *status = *byte;
-            *data_len = 0;
-            // consume and discard
-            while (*byte != 0xf0 && byte <= end) { ++byte; };
-            continue;
-        }
-
-        // no status byte, running status applies, prior status and data len
-        // applies
-        fprintf(stderr, "RMS? byte: 0x%02x -- last s 0x%x n %u\n", *byte, *status, *data_len);
-        if (*status == 0) {
-            ++byte;
-            fprintf(stderr, "corrupt?, not posting");
-            continue;
-        }
-
-    post:
-        ev = event_data_new(EVENT_MIDI_EVENT);
-        ev->midi_event.id = midi->dev.id;
-        ev->midi_event.nbytes = *data_len + 1;
-        ev->midi_event.data[0] = *status;
-        for (i = 1; i <= *data_len; i++) {
-            ev->midi_event.data[i] = *byte++;
-        }
-        fprintf(stderr, "POST(%d // 0x%x 0x%x 0x%x)\n", *data_len + 1,
-            ev->midi_event.data[0],
-            ev->midi_event.data[1],
-            ev->midi_event.data[2]
-        );
-        event_post(ev);
-    }
-
-    ssize_t rtn = byte - rx_buffer;
-    fprintf(stderr, "buf 0x%p, read %zd, rtn %zd\n", rx_buffer, size, rtn);
-    return rtn;
-}
-
 static inline bool is_status_byte(uint8_t byte) {
     return (byte & 0xf0) >> 7;
 }
@@ -253,11 +150,12 @@ static inline uint8_t midi_msg_len(uint8_t status) {
         return 1;
     }
 
-    // system exclusive messages
+    // system exclusive messages (variable length)
     switch (status) {
-    case 0xf7:  // sysex start
-    case 0xf0:  // sysex stop
-        return 0; // special case
+    case 0xf0:  // sysex start
+        return 3; // special case, deliver sysex to lua in 3 byte chunks
+    case 0xf7:  // sysex stop
+        return 1; // special case, allow single sysex stop as isolated event
     }
 
     // channel mode messages
@@ -306,7 +204,7 @@ static inline void midi_input_msg_start(midi_input_state_t *state, uint8_t statu
     state->msg_len = midi_msg_len(status);
     state->msg_started = true;
     state->msg_buf[state->msg_pos++] = status;
-    state->msg_sysex = status == 0xf7; 
+    state->msg_sysex = status == 0xf0;
 }
 
 static inline void midi_input_msg_end(midi_input_state_t *state) {
@@ -316,14 +214,29 @@ static inline void midi_input_msg_end(midi_input_state_t *state) {
 
 static inline void midi_input_msg_acc(midi_input_state_t *state, uint8_t byte) {
     if (!state->msg_started) {
-        // running status
-        // fprintf(stderr, "RMS byte: 0x%02x -- last s 0x%x n %u\n", byte, state->prior_status, state->prior_len);
-        state->msg_started = true;
-        state->msg_buf[0] = state->prior_status;
-        state->msg_len = state->prior_len;
-        state->msg_pos++;
+        if (state->msg_sysex) {
+            // continue to pass sysex through in 3 byte chunks
+            state->msg_started = true;
+            state->msg_pos = 0;
+            state->msg_len = 3;
+        } else {
+            // running status, start a new message
+            // fprintf(stderr, "RMS byte: 0x%02x -- last s 0x%x n %u\n", byte,
+            // state->prior_status, state->prior_len);
+            state->msg_started = true;
+            state->msg_pos = 0;
+            state->msg_len = state->prior_len;
+            state->msg_buf[state->msg_pos++] = state->prior_status;
+        }
     }
+
     state->msg_buf[state->msg_pos++] = byte;
+
+    // terminate sysex
+    if (byte == 0xf7) {
+        state->msg_sysex = false;
+        state->msg_len = state->msg_pos;
+    }
 }
 
 static inline bool midi_input_msg_is_complete(midi_input_state_t *state) {
@@ -336,9 +249,12 @@ static inline ssize_t dev_midi_consume_buffer(midi_input_state_t *state, ssize_t
     uint8_t byte = 0;
 
     // fprintf(stderr, "START read %zd // head 0x%02x\n", size, *(state->buffer));
-
     for (i = 0; i < size; i++) {
         byte = state->buffer[i];
+
+        if (byte >= 0xf8) {
+            clock_midi_handle_message(byte);
+        }
 
         if (is_status_byte(byte)) {
             midi_input_msg_start(state, byte);
@@ -346,7 +262,6 @@ static inline ssize_t dev_midi_consume_buffer(midi_input_state_t *state, ssize_t
             midi_input_msg_acc(state, byte);
         }
 
-        // send completed message
         if (midi_input_msg_is_complete(state)) {
             midi_input_msg_post(state, midi);
             midi_input_update_status(state, byte);
@@ -355,7 +270,6 @@ static inline ssize_t dev_midi_consume_buffer(midi_input_state_t *state, ssize_t
     }
 
     // fprintf(stderr, "  END read %zd, rtn %zd\n", size, i);
-
     return i;
 }
 
@@ -395,90 +309,6 @@ void *dev_midi_start(void *self) {
     if (status) {
         snd_rawmidi_status_free(status);
     }
-
-    return NULL;
-}
-
-void *dev_midi_start_old(void *self) {
-    struct dev_midi *midi = (struct dev_midi *)self;
-    union event_data *ev;
-
-    ssize_t read = 0;
-    uint8_t byte = 0;
-    uint8_t msg_buf[256];
-    uint8_t msg_pos = 0;
-    uint8_t msg_len = 0;
-
-    do {
-        read = snd_rawmidi_read(midi->handle_in, &byte, 1);
-
-        if (byte >= 0xf8) {
-            clock_midi_handle_message(byte);
-
-            ev = event_data_new(EVENT_MIDI_EVENT);
-            ev->midi_event.id = midi->dev.id;
-            ev->midi_event.data[0] = byte;
-            ev->midi_event.nbytes = 1;
-            event_post(ev);
-        } else {
-            if (byte >= 0x80) {
-                msg_buf[0] = byte;
-                msg_pos = 1;
-
-                switch (byte & 0xf0) {
-                case 0x80:
-                case 0x90:
-                case 0xa0:
-                case 0xb0:
-                case 0xe0:
-                case 0xf2:
-                    msg_len = 3;
-                    break;
-                case 0xc0:
-                case 0xd0:
-                    msg_len = 2;
-                    break;
-                case 0xf0:
-                    switch (byte & 0x0f) {
-                    case 0x01:
-                    case 0x03:
-                        msg_len = 2;
-                        break;
-                    case 0x07:
-                        // TODO: properly handle sysex length
-                        msg_len = msg_pos; // sysex end
-                        break;
-                    case 0x00:
-                        msg_len = 0; // sysex start
-                        break;
-                    default:
-                        msg_len = 2;
-                        break;
-                    }
-                    break;
-                default:
-                    msg_len = 2;
-                    break;
-                }
-            } else {
-                msg_buf[msg_pos] = byte;
-                msg_pos += 1;
-            }
-
-            if (msg_pos == msg_len) {
-                ev = event_data_new(EVENT_MIDI_EVENT);
-                ev->midi_event.id = midi->dev.id;
-                ev->midi_event.data[0] = msg_buf[0];
-                ev->midi_event.data[1] = msg_len > 1 ? msg_buf[1] : 0;
-                ev->midi_event.data[2] = msg_len > 2 ? msg_buf[2] : 0;
-                ev->midi_event.nbytes = msg_len;
-                event_post(ev);
-
-                msg_pos = 0;
-                msg_len = 0;
-            }
-        }
-    } while (read > 0);
 
     return NULL;
 }
