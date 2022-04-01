@@ -23,6 +23,9 @@ def build(bld):
         '../matron/src/events.cc',
         '../matron/src/hello.cc',
         '../matron/src/input.cc',
+        #--- FIXME: from rebase
+        '../matron/src/jack_client.c',
+        #--- 
         '../matron/src/lua_eval.cc',
         '../matron/src/main.cc',
         '../matron/src/metro.cc',
@@ -92,7 +95,7 @@ def build(bld):
 
     if bld.env.ENABLE_ABLETON_LINK:
         matron_sources += ['../matron/src/clocks/clock_link.cc']
-        matron_includes += ['../third-party/link-c']
+        matron_includes += ['../third-party/link/extensions/abl_link/include']
         matron_libs += ['stdc++']
         matron_use += ['LIBLINK_C']
 
